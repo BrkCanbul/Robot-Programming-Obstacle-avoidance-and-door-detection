@@ -97,9 +97,37 @@ class ObjectAvoidanceNode(Node):
             
         
     
-    def conv_force_to_twist(self):
-        pass
-
+    def conv_force_to_twist(self,Force:np.ndarray):
+        eps = 1e-6
+        
+        target_angle = np.arctan2(Force[0],Force[1])
+        
+        angle_error = target_angle
+        
+        
+        k_angle = 1.0
+        w_cmd = k_angle *angle_error
+        
+        magnitude_F =np.linalg.norm(Force)
+        k_lin = 0.2
+        v_cmd = k_lin*magnitude_F
+        
+        
+        max_ang = abs(target_angle)
+        
+        if max_ang > np.pi/4:
+            v_cmd =0.0
+            
+        v_cmd = np.clip(v_cmd,-self.v_linear_max_ms,self.v_linear_max_ms)
+        w_cmd = np.clip(w_cmd,-self.v_angular_max_rads,self.v_angular_max_rads)
+        twiststamp = TwistStamped()
+        
+        twiststamp.twist.linear.x  = float(v_cmd)
+        twiststamp.twist.angular.z = float(w_cmd)
+        
+        
+        return twiststamp
+            
 
 
 
