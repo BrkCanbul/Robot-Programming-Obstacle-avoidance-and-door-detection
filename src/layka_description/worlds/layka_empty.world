@@ -1,0 +1,22 @@
+<sdf version="1.7">
+  <world name="layka_empty">
+
+    <!-- Fizik motoru ayarları -->
+    <physics name="10ms" type="ignored">
+      <max_step_size>0.01</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+
+    <!-- Zemin (ground plane) -->
+    <include>
+      <uri>https://fuel.gazebosim.org/1.0/openrobotics/models/Ground Plane</uri>
+    </include>
+
+    <!-- Güneş ışığı -->
+    <include>
+      <uri>https://fuel.gazebosim.org/1.0/openrobotics/models/Sun</uri>
+    </include>
+
+  </world>
+</sdf>

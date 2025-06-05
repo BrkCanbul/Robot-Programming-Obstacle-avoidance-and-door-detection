@@ -1,0 +1,194 @@
+<?xml version="1.0"?>
+
+<robot name="layka" xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <!-- Include Gazebo Parameters -->
+  <xacro:include filename="$(find layka_description)/urdf/layka_ir_gazebo.xacro" />
+
+  <!-- Include ros2_control Plugins -->
+  <xacro:include filename="$(find layka_description)/urdf/layka_ir_control.xacro" />
+  
+  <link name="base_footprint"/>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 -0.03285" rpy="0 0 0"/>
+      <geometry>
+          <!-- <cylinder length="0.0657" radius="0.0725"/>-->
+          <mesh filename="$(find layka_description)/meshes/base_link.dae" />
+      </geometry>
+    </visual>
+
+    <collision>
+      <geometry>
+          <cylinder length="0.0657" radius="0.0725"/>
+      </geometry>
+      <contact_coefficients mu="0" kp="1000.0" kd="1.0"/>
+    </collision>
+
+    <inertial>
+      <origin xyz="0 0 0.016"/>
+      <mass value="1.5" />
+      <inertia ixx="0.01" ixy="0.0" ixz="0" 
+            iyy="0.01" iyz="0" izz="0.01" />
+    </inertial>
+  </link>
+
+  <joint name="base_joint" type="fixed">
+    <origin xyz="0 0 0.04245" rpy="0 0 0"/>
+    <parent link="base_footprint"/>
+    <child link="base_link"/>    
+  </joint>
+  
+   <link name="wheel_right_link">
+    <visual>
+      <origin xyz="0.016 0 0" rpy="0 -1.5708 0"/>
+      <geometry>
+          <!-- <cylinder radius="0.016" length="0.007"/> -->
+          <mesh filename="$(find layka_description)/meshes/wheel_link.dae" />
+      </geometry>
+    </visual>
+
+    <collision>
+      <geometry>
+          <cylinder radius="0.016" length="0.007"/>
+      </geometry>
+      <contact_coefficients mu="0" kp="1000.0" kd="1.0"/>
+    </collision>
+
+    <inertial>
+      <mass value="1.0" />
+      <inertia ixx="0.01" ixy="0.0" ixz="0" 
+            iyy="0.01" iyz="0" izz="0.01" />
+    </inertial>
+  </link>
+
+  <joint name="wheel_right_joint" type="continuous">
+    <origin xyz="0.0 -0.06925 -0.02645" rpy="1.57 0.0 0.0"/>
+    <parent link="base_link"/>
+    <child link="wheel_right_link"/>
+    <axis xyz="0.0 0.0 1.0"/>
+  </joint>
+
+
+  <link name="wheel_left_link">
+    <visual>
+      <origin xyz="-0.016 0 0" rpy="0 1.5708 0"/>
+      <geometry>
+          <!-- <cylinder radius="0.016" length="0.007"/>-->
+          <mesh filename="$(find layka_description)/meshes/wheel_link.dae" />
+      </geometry>
+    </visual>
+
+    <collision>
+      <geometry>
+          <cylinder radius="0.016" length="0.007"/>
+      </geometry>
+      <contact_coefficients mu="0" kp="1000.0" kd="1.0"/>
+    </collision>
+
+    <inertial>
+      <mass value="1.0" />
+      <inertia ixx="0.01" ixy="0.0" ixz="0" 
+            iyy="0.01" iyz="0" izz="0.01" />
+    </inertial>
+  </link>
+
+  <joint name="wheel_left_joint" type="continuous">
+    <origin xyz="0.0 0.06925 -0.02645" rpy="1.57 0.0 0.0"/>
+    <parent link="base_link"/>
+    <child link="wheel_left_link"/>
+    <axis xyz="0.0 0.0 1.0"/>
+  </joint>
+
+  <link name="caster_front_link">
+    <visual>    
+      <geometry>
+        <sphere radius="0.00635" />
+      </geometry>
+      <material name="white" />
+    </visual>
+
+    <collision>
+      <origin/>
+      <geometry>
+        <sphere radius="0.00635" />
+      </geometry>
+      <contact_coefficients mu="0" kp="1000.0" kd="1.0"/>
+    </collision>
+
+    <inertial>
+      <mass value="1.0" />
+      <inertia ixx="0.01" ixy="0.0" ixz="0" 
+            iyy="0.01" iyz="0" izz="0.01" />
+    </inertial>
+  </link>
+
+  <joint name="caster_front_joint" type="continuous">
+    <origin xyz="0.06 0.0 -0.0361" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0 0 1" />
+    <parent link="base_link"/>
+    <child link="caster_front_link"/>
+  </joint>
+
+  <link name="caster_back_link">
+    <visual>    
+      <geometry>
+        <sphere radius="0.00635" />
+      </geometry>
+      <material name="white" />
+    </visual>
+
+    <collision>
+      <origin/>
+      <geometry>
+        <sphere radius="0.00635" />
+      </geometry>
+      <contact_coefficients mu="0" kp="1000.0" kd="1.0"/>
+    </collision>
+
+    <inertial>
+      <mass value="1.0" />
+      <inertia ixx="0.01" ixy="0.0" ixz="0" 
+            iyy="0.01" iyz="0" izz="0.01" />
+    </inertial>
+  </link>
+
+  <joint name="caster_back_joint" type="continuous">
+    <origin xyz="-0.06 0.0 -0.0361" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0 0 1" />
+    <parent link="base_link"/>
+    <child link="caster_back_link"/>
+  </joint> 
+
+
+<material name="white">
+  <color rgba="1 1 1 1"/>
+</material>
+
+<material name="black">
+  <color rgba="0 0 0 1"/>
+</material>
+
+<!-- Gazebo colors to links as upper defined colors are only visible in RVIZ-->
+<!-- <gazebo reference="base_link">
+  <material>Gazebo/White</material>
+</gazebo> -->
+
+<gazebo reference="caster_front_link">
+  <material>Gazebo/White</material>
+</gazebo>
+
+<gazebo reference="caster_back_link">
+  <material>Gazebo/White</material>
+</gazebo>
+
+<!-- <gazebo reference="wheel_right_link">
+  <material>Gazebo/Black</material>
+</gazebo>
+<gazebo reference="wheel_left_link">
+  <material>Gazebo/Black</material>
+</gazebo>  -->
+
+</robot>
+

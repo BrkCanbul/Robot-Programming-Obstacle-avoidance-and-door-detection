@@ -1,0 +1,182 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+  <world name="layka_empty">
+
+    <!-- Fizik motoru ayarları -->
+    <physics name="10ms" type="ignored">
+      <max_step_size>0.01</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+
+    <!-- Zemin (ground plane) -->
+    <include>
+      <uri>https://fuel.gazebosim.org/1.0/openrobotics/models/Ground Plane</uri>
+    </include>
+
+    <!-- Güneş ışığı -->
+    <include>
+      <uri>https://fuel.gazebosim.org/1.0/openrobotics/models/Sun</uri>
+    </include>
+
+    <model name="layka_house">
+      <static>true</static>
+      <include>
+        <uri>model://layka_house</uri>
+      </include>
+      <pose>0 0 0 0 0 0</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+    <model name="table1">
+      <static>true</static>
+      <include>
+        <uri>model://Table</uri>
+      </include>
+      <pose>0.10324258357286453 -3.6232864856719971 0 0 0 1.5709499942004184</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+    <model name="sofa1">
+      <static>true</static>
+      <include>
+        <uri>model://Sofa</uri>
+      </include>
+      <pose>0.079974092543125153 -7.528254508972168 0.00011945221194764599 4.277520025706793e-07 3.70774993582602e-07 3.1290699999476379</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+    <model name='cylinder1'>
+      <pose>-1.2312799692153931 -1.0711373090744019 0.49999880457427115 4.9953320288535869e-17 5.5074597021635991e-17 1.6864610867444622e-17</pose>
+      <link name='cylinder_link'>
+        <inertial>
+          <inertia>
+            <ixx>0.14580000000000001</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.14580000000000001</iyy>
+            <iyz>0</iyz>
+            <izz>0.125</izz>
+          </inertia>
+          <mass>1</mass>
+          <pose>0 0 0 0 0 0</pose>
+        </inertial>
+        <collision name='cylinder_collision'>
+          <geometry>
+            <cylinder>
+              <radius>0.5</radius>
+              <length>1</length>
+            </cylinder>
+          </geometry>
+          <surface>
+            <friction>
+              <ode/>
+            </friction>
+            <bounce/>
+            <contact/>
+          </surface>
+        </collision>
+        <visual name='cylinder_visual'>
+          <geometry>
+            <cylinder>
+              <radius>0.5</radius>
+              <length>1</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>1 0 0 1</ambient>
+            <diffuse>1 0 0 1</diffuse>
+            <specular>0.5 0.5 0.5 1</specular>
+          </material>
+        </visual>
+        <pose>0 0 0 0 0 0</pose>
+        <enable_wind>false</enable_wind>
+      </link>
+      <static>false</static>
+      <self_collide>false</self_collide>
+    </model>
+
+    <model name="table2">
+      <static>true</static>
+      <include>
+        <uri>model://Table</uri>
+      </include>
+      <pose>-0.47508981064712952 1.8386499761747412 0 0 0 0</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+    <model name="table3">
+      <static>true</static>
+      <include>
+        <uri>model://Table</uri>
+      </include>
+      <pose>3.1220520491069097 -1.5982708814765783 0 0 0 0</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+    <model name="chair1">
+      <static>true</static>
+      <include>
+        <uri>model://Chair</uri>
+      </include>
+      <pose>-0.40527400125680002 1.0221999720418566 -2.5895252455112566e-07 1.7271664144177519e-06 2.0733500592110164e-06 1.6195274555411359</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+    <model name="chair2">
+      <static>true</static>
+      <include>
+        <uri>model://Chair</uri>
+      </include>
+      <pose>1.9159100055692186 -1.5619652271267419 -1.6152770087998916e-07 1.489207713222492e-06 1.648273897524536e-06 2.4677219782391015e-11</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+
+    <model name="chair3">
+      <static>true</static>
+      <include>
+        <uri>model://Chair</uri>
+      </include>
+      <pose>5.2209401138763774 -3.4265799523797917 -0.00031108856007369445 2.9433206024599989e-06 2.8404888070632453e-06 -2.4107248229718254</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+    <model name="cabinet1">
+      <static>true</static>
+      <include>
+        <uri>model://WhiteCabinet</uri>
+      </include>
+      <pose>5.2518701553344727 2.223048210144043 0 0 0 0</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+    <model name="cabinet2">
+      <static>true</static>
+      <include>
+        <uri>model://WhiteCabinet</uri>
+      </include>
+      <pose>5.6825881004333496 -2.1163303852081299 0 0 0 -1.537899986944387</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+    <model name="cabinet3">
+      <static>true</static>
+      <include>
+        <uri>model://WhiteCabinet</uri>
+      </include>
+      <pose>2.5642557144165039 -3.0997986793518066 0 0 0 -0.019065299722901548</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+    <model name="bed1">
+      <static>true</static>
+      <include>
+        <uri>model://NormalBed</uri>
+      </include>
+      <pose>4.7958908081054688 -7.7705821990966797 -1.0480130185896996e-06 1.5270700080536067e-08 5.3971699219430637e-08 3.1165299995492468</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+  </world>
+</sdf>
