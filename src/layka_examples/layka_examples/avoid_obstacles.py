@@ -22,6 +22,13 @@ class ObjectAvoidanceNode(Node):
         self.declare_parameter("v_linear_max",0.5)  ## m/s
         self.declare_parameter("v_angular_max",1.0) ## rad/s
         
+        self.declare_parameter("x_goal",5.0)
+        self.declare_parameter("y_goal",6.0)
+        
+        self.x_goal = self.get_parameter("x_goal")
+        self.y_goal = self.get_parameter("y_goal")
+        
+        
         self.k_att = self.get_parameter("K_att")
         self.k_rep = self.get_parameter("K_rep")
         self.rep_field = self.get_parameter("rep_field")
@@ -52,10 +59,11 @@ class ObjectAvoidanceNode(Node):
         
         # TODO: Implement avoidance algorithm uses APF (Artificial potential fileds )
     
-    def _compute_att_force(self):
+    def _compute_att_force(self)-> np.ndarray:  
+        goal_vector =  np.array([self.x_goal])
         pass
     
-    def _compute_rep_force(self):
+    def _compute_rep_force(self)-> np.ndarray:
         pass            
     
     def conv_force_to_twist(self):
