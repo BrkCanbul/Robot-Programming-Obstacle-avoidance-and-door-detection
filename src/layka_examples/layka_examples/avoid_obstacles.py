@@ -65,8 +65,37 @@ class ObjectAvoidanceNode(Node):
         
         
     
-    def _compute_rep_force(self)-> np.ndarray:
-        pass            
+    def _compute_rep_force(self,scan:LaserScan)-> np.ndarray:
+        ranges = np.array(scan.ranges)
+        angle_min = scan.angle_min
+        angle_inc = scan.angle_increment
+        
+        f_rep_total = np.zeros(2,dtype=np.float32)
+        
+        for index,d_i in enumerate(ranges):
+            
+            if np.isinf(d_i) or np.isnan(d_i):
+                continue
+            
+            if d_i > self.rep_field or d_i <=0.0:
+                continue
+            
+            theta_i = angle_min * index *angle_inc
+            
+            coeff = (1.0/d_i) - (1.0/self.rep_field)
+            
+            f_i = self.k_rep * coeff * (1.0/(d_i*d_i))
+            
+            ux = np.cos(theta_i)
+            uy = np.sin(theta_i)
+            
+            
+            f_rep_total +=  f_i *np.array([ux,uy])
+            
+        return f_rep_total
+    
+            
+        
     
     def conv_force_to_twist(self):
         pass
