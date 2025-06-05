@@ -57,6 +57,9 @@ class ObjectAvoidanceNode(Node):
     
     def _compute_rep_force(self):
         pass            
+    
+    def conv_force_to_twist(self):
+        pass
 
 
 
