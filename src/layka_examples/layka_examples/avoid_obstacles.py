@@ -60,8 +60,10 @@ class ObjectAvoidanceNode(Node):
         # TODO: Implement avoidance algorithm uses APF (Artificial potential fileds )
     
     def _compute_att_force(self)-> np.ndarray:  
-        goal_vector =  np.array([self.x_goal])
-        pass
+        goal_vector =  np.array([self.x_goal,self.y_goal])
+        return self.k_att * goal_vector
+        
+        
     
     def _compute_rep_force(self)-> np.ndarray:
         pass            
