@@ -48,7 +48,15 @@ class ObjectAvoidanceNode(Node):
         if self.lastest_scan == None:
             return
         
-        # TODO: Implement avoidance algorithm uses APF (Artificial potential fields)        
+        scan = self.lastest_scan
+        
+        # TODO: Implement avoidance algorithm uses APF (Artificial potential fileds )
+    
+    def _compute_att_force(self):
+        pass
+    
+    def _compute_rep_force(self):
+        pass            
 
 
 
