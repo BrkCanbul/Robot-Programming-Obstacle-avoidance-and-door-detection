@@ -5,15 +5,22 @@ from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
+
 class ObjectAvoidanceNode(Node):
     def __init__(self):
         super().__init__('object_avoidance_node')
-        self.subscription = self.create_subscription(
+        self.lidar_sub = self.create_subscription(
             LaserScan,
             '/scan',
             self.lidar_callback,
             10)
-        
+        self.odom_sub = self.create_subscription(
+            Odometry,
+            '/layka_controller/odom',
+            self.odometry_callback,
+            10
+        )
+    
         
         self.declare_parameter("K_att",1.0)         ## attractive coef 
         self.declare_parameter("K_rep",1.0)         ## repulsive  coef
@@ -28,6 +35,10 @@ class ObjectAvoidanceNode(Node):
         
         self.x_goal = self.get_parameter("x_goal").value
         self.y_goal = self.get_parameter("y_goal").value
+        
+        self.robot_gx = 0.0
+        self.robot_gy = 0.0
+        self.robot_yaw = 0.0
             
         self.k_att = self.get_parameter("K_att").value
         self.k_rep = self.get_parameter("K_rep").value  
@@ -43,7 +54,6 @@ class ObjectAvoidanceNode(Node):
         self.counter = 0
         self.lastest_scan:LaserScan = None
         self.current_twist = TwistStamped()
-        self.last_odometry:Odometry = None
         
         self.get_logger().info(f'Object Avoidance Node Started to goal (x,y) :({self.x_goal},{self.y_goal}) ')
 
@@ -52,8 +62,16 @@ class ObjectAvoidanceNode(Node):
     def lidar_callback(self, msg):
         self.lastest_scan = msg
         
-    def odometry_callback(self,msg):
-        self.last_odometry = msg
+    def odometry_callback(self,msg:Odometry):
+        self.robot_gx = msg.pose.pose.position.x
+        self.robot_gy = msg.pose.pose.position.y
+        
+        q = msg.pose.orientation
+        
+        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        
+        self.robot_yaw = np.arctan2(siny_cosp,cosy_cosp)
         
         
     def control_loop(self):
@@ -71,9 +89,23 @@ class ObjectAvoidanceNode(Node):
         self.current_twist = twist_command
     
     def _compute_att_force(self)-> np.ndarray:  
-        goal_vector =  np.array([self.x_goal,self.y_goal])
-        self.get_logger().info(f"goal vector : {goal_vector}")
-        return self.k_att * goal_vector
+        
+        dx = self.x_goal - self.robot_gx
+        dy = self.y_goal - self.robot_gy
+        
+        goal_g = np.array([dx,dy])
+        F_att_global = self.k_att * goal_g
+        
+        psi = self.robot_yaw
+        
+        r_inv = np.array(
+            [[np.cos(psi),np.sin(psi)],
+            [-np.sin(psi),np.cos(psi)]]
+        )
+        F_att_body = r_inv.dot(F_att_global)
+        
+        self.get_logger().info(f"goal vector : {F_att_body}")
+        return F_att_body
         
         
     
