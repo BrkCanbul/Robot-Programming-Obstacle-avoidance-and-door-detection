@@ -1,52 +1,46 @@
-#!/usr/bin/env python3
+import matplotlib.pyplot as plt
+import numpy as np
 
-import rclpy
-from rclpy.node import Node
-from sensor_msgs.msg import LaserScan
-from geometry_msgs.msg import TwistStamped
-from std_msgs.msg import Header
-
-class ObjectAvoidanceNode(Node):
+class Visualizer:
     def __init__(self):
-        super().__init__('object_avoidance_node')
-        self.subscription = self.create_subscription(
-            LaserScan,
-            '/scan',
-            self.lidar_callback,
-            10)
-        self.counter = 0
-        self.publisher = self.create_publisher(TwistStamped, '/layka_controller/cmd_vel', 10)
-        self.get_logger().info('Object Avoidance Node Started')
+        plt.ion()
+        self.fig, self.ax = plt.subplots(figsize=(8, 8))
 
-    def lidar_callback(self, msg):
-        ranges = msg.ranges
-        min_distance = min(ranges)
+        # Eksen sınırlarını KİLİTLE
+        self.xlim = (-4, 4)
+        self.ylim = (-4, 4)
 
-        if self.counter % 100 == 0: 
-            print('Min lidar distance: ', min_distance)  
-            #self.get_logger().info(f"Publishing to: {self.publisher.topic}") 
-            
-            twist_msg = TwistStamped()
-            twist_msg.header = Header()
-            twist_msg.header.stamp = self.get_clock().now().to_msg()
-            
-            # No obstacle detected, move forward
-            twist_msg.twist.linear.x = -0.3
-            twist_msg.twist.angular.z = 0.0
+        self.ax.set_xlim(self.xlim)
+        self.ax.set_ylim(self.ylim)
+        self.ax.set_aspect('equal', adjustable='box')
+        self.ax.grid(True)
+        self.ax.set_title("Robot Merkezli Lidar + Kuvvet Vektörleri")
 
-            self.publisher.publish(twist_msg)
+    def update(self, x_points, y_points, F_att=None, F_rep=None, F_total=None ,robot_x=None,robot_y=None):
+        self.ax.cla()
 
-def main(args=None):
-    rclpy.init(args=args)
-    node = ObjectAvoidanceNode()
+        # Eksen sınırlarını her çizimde ZORLA yeniden ayarla
+        
+        self.ax.set_xlim(self.xlim)
+        self.ax.set_ylim(self.ylim)
+        self.ax.set_aspect('equal', adjustable='box')
+        self.ax.grid(True)
 
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        node.get_logger().info('Keyboard Interrupt (SIGINT)')
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        # Robot ve lidar
+        self.ax.plot(0, 0, 'ro', label=f'Robot {robot_x:.2f},{robot_y:.2f}')
+        self.ax.scatter(x_points, y_points, c='b', s=10, label='Lidar')
+        # Kuvvet vektörleri
+        if F_att is not None:
+            self.ax.quiver(0, 0, F_att[0]/10, F_att[1]/10, angles='xy', scale_units='xy',
+                           scale=1, color='g', label=f'F_att (çekici): ({F_att[0]:.2f},{F_att[1]:.2f})')
+        if F_rep is not None:
+            self.ax.quiver(0, 0, F_rep[0]/10, F_rep[1]/10, angles='xy', scale_units='xy',
+                           scale=1, color='r', label=f'F_rep (tarakitici) ({F_rep[0]:.2f},{F_rep[1]:.2f})')
+        if F_total is not None:
+            self.ax.quiver(0, 0, F_total[0]/10, F_total[1]/10, angles='xy', scale_units='xy',
+                           scale=1, color='k', label=f'F_total ({F_total[0]:.2f},{F_total[1]:.2f})')
 
-if __name__ == '__main__':
-    main()
+        self.ax.legend(loc='upper right')
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
+        plt.pause(0.001)
