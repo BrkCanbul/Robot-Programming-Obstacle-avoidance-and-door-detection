@@ -20,6 +20,7 @@ setup(
     entry_points={
         'console_scripts': [
             'avoid_obstacles = layka_examples.avoid_obstacles:main',
+            'second_node = layka_examples.second_node:main',
         ],
     },
 )

@@ -4,7 +4,7 @@ import numpy as np
 class Visualizer:
     def __init__(self):
         plt.ion()
-        self.fig, self.ax = plt.subplots(figsize=(8, 8))
+        self.fig, self.ax = plt.subplots(figsize=(4, 4))
 
         # Eksen sınırlarını KİLİTLE
         self.xlim = (-4, 4)
