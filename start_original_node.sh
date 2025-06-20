@@ -13,13 +13,13 @@ source ./install/setup.zsh
 
 
 
-GOAL_X=10.0
-GOAL_Y=0.0
-K_ATT=1.1
-K_REP=1.5
-D0=10.0
-V_MAX=0.3
-W_MAX=0.8
+GOAL_X=0.0
+GOAL_Y=2.0
+K_ATT=1.0
+K_REP=1.1
+D0=1.0
+V_MAX=0.4
+W_MAX=1.5
 MIN_DIST=0.01
 MAX_REP=1.0
 
@@ -46,37 +46,25 @@ D_THRESH=0.2
 ALPHA=0.7
 
 
-ros2 launch layka_description layka_odev_empty.launch.py >> /dev/null 2>&1 &
+ros2 launch layka_description layka_odev_house.launch.py >> /dev/null 2>&1 &
 echo "Gazebo başlatiliyor"
 
 sleep 4
 ros2 launch layka_controller  controller.launch.py >> /dev/null 2>&1 &
 echo "kontrolcü basladi"
 
-ros2 run layka_examples avoid_obstacles --ros-args \
-        -p goal_x:=${GOAL_X}        \
-        -p goal_y:=${GOAL_Y}        \
-        -p k_att:=${K_ATT}          \
-        -p k_rep:=${K_REP}          \
-        -p d0:=${D0}                \
-        -p v_linear_max:=${V_MAX}          \
-        -p w_angular_max:=${W_MAX}          \
-        -p d0:=${D0}                \
-        -p v_linear_max:=${V_MAX}   \
-        -p w_angular_max:=${W_MAX}  \
-        -p min_distance:=${MIN_DIST}\
-        -p max_rep:=${MAX_REP}      \
-        -p Kp_ang:=${KP_ANG}        \
-        -p Ki_ang:=${KI_ANG}        \
-        -p Kd_ang:=${KD_ANG}        \
-        -p Kp_lin:=${KP_LIN}        \
-        -p Ki_lin:=${KI_LIN}        \
-        -p Kd_lin:=${KD_LIN}        \
-        -p deadband_ang:=${DEADBAND_ANG} \
-        -p d_thresh:=${D_THRESH}        \
-        -p alpha:=${ALPHA}             \
+# self.declare_parameter("K_att", 0.4)          # Attraction force constant
+#         self.declare_parameter("K_rep", 0.1)          # Repulsive force constant
+#         self.declare_parameter("rep_field", 1.75)      # Repulsive field range
+#         self.declare_parameter("v_max",0.5)
+#         self.declare_parameter("w_max",1.0)
         
 
-
-
-      
+ros2 run layka_examples avoid_obstacles --ros-args \
+        -p goal_x:=$GOAL_X \
+      -p goal_y:=$GOAL_Y \
+      -p K_att:=$K_ATT \
+      -p K_rep:=$K_REP \
+      -p rep_field:=$D0 \
+      -p v_max:=$V_MAX \
+      -p w_max:=$W_MAX \

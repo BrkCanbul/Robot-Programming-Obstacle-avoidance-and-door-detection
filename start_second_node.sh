@@ -53,16 +53,7 @@ sleep 4
 ros2 launch layka_controller  controller.launch.py >> /dev/null 2>&1 &
 echo "kontrolcü basladi"
 
-ros2 run layka_examples second_node --ros-args \
-        -p x_goal:=${GOAL_X}        \
-        -p y_goal:=${GOAL_Y}        \
-        -p K_att:=${K_ATT}          \
-        -p K_rep:=${K_REP}          \
-        -p rep_field:=${D0}                \
-        -p v_linear_max:=${V_MAX}          \
-        -p v_angular_max:=${W_MAX}          \
-        -p max_rep:=${MAX_REP}          \
-         
+ros2 run layka_examples second_node
         # self.declare_parameter("K_att",1.0)         ## attractive coef 
         # self.declare_parameter("K_rep",1.0)         ## repulsive  coef
         # self.declare_parameter("rep_field",1.0)     ## repulsive force affection field

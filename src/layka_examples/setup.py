@@ -21,6 +21,7 @@ setup(
         'console_scripts': [
             'avoid_obstacles = layka_examples.avoid_obstacles:main',
             'second_node = layka_examples.second_node:main',
+            'second_nodee = layka_examples.second_nodee:main',
         ],
     },
 )

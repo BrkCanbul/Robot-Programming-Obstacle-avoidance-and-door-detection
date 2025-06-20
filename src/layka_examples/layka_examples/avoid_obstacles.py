@@ -1,17 +1,18 @@
-#!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import TwistStamped,Twist
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Header
-from .pid_Controller import PIDController
-from .visualiser import Visualizer
-
 
 import numpy as np
 import math as m
-import random as rand
+
+
+
+
+from .visualiser import Visualizer
+
 
 class ObjectAvoidanceNode(Node):
     def __init__(self):
@@ -25,235 +26,286 @@ class ObjectAvoidanceNode(Node):
         self.odom_sub = self.create_subscription(
             Odometry,
             '/layka_controller/odom',
-            self.odom_callback,
-            10)
-        self.cmd_vel_pub = self.create_publisher(TwistStamped, '/layka_controller/cmd_vel', 10)
+            self.odometry_callback,
+            10
+        )
         
-        self.visualiser = Visualizer()
+        self.declare_parameter("goal_x", 5.0)
+        self.declare_parameter("goal_y", 0.0)
         
-        #-- ROBOT
+        self.declare_parameter("K_att", 0.4)          # Attraction force constant
+        self.declare_parameter("K_rep", 0.1)          # Repulsive force constant
+        self.declare_parameter("rep_field", 1.75)      # Repulsive field range
+        self.declare_parameter("v_max",0.5)
+        self.declare_parameter("w_max",1.0)
+        
+        
+        
         self.robot_x = 0.0
         self.robot_y = 0.0
-        self.robot_heading = 0.0
-        
-        self.last_scan:LaserScan = None
+        self.robot_theta = 0.0
         
         
+        self.goal_x = self.get_parameter("goal_x").value
+        self.goal_y = self.get_parameter("goal_y").value
         
-        #-- PARAMETERS    
-        self.declare_parameter("goal_x",10.0)
-        self.declare_parameter("goal_y",0.0)
-        self.declare_parameter("k_att",1.3)
-        self.declare_parameter("k_rep",0.4)
-        self.declare_parameter("d0",3.50)
-        self.declare_parameter("v_linear_max",0.2)
-        self.declare_parameter("w_angular_max",0.8)
-        self.declare_parameter("min_distance",0.01)
-        self.declare_parameter("max_rep",5.0)
-        
-        #-- PID PARAMETERS
-        self.declare_parameter("Kp_ang",0.30)
-        self.declare_parameter("Ki_ang",0.02)
-        self.declare_parameter("Kd_ang",0.10)
-        self.declare_parameter("Kp_lin",0.60)
-        self.declare_parameter("Ki_lin",0.01)
-        self.declare_parameter("Kd_lin",0.05)
-        self.declare_parameter("deadband_ang",0.05)
-        self.declare_parameter("d_thresh",0.20)
-        self.declare_parameter("alpha",0.7)
-        
-        kp_ang = self.get_parameter("Kp_ang").value
-        ki_ang = self.get_parameter("Ki_ang").value
-        kd_ang = self.get_parameter("Kd_ang").value
-        kp_lin = self.get_parameter("Kp_lin").value
-        ki_lin = self.get_parameter("Ki_lin").value
-        kd_lin = self.get_parameter("Kd_lin").value
-        deadband_ang = self.get_parameter("deadband_ang").value
-        d_thresh = self.get_parameter("d_thresh").value
-        alpha = self.get_parameter("alpha").value        
+        self.k_att = self.get_parameter("K_att").value
+        self.k_rep = self.get_parameter("K_rep").value
+        self.rep_field = self.get_parameter("rep_field").value
+        self.v_max = self.get_parameter("v_max").value
+        self.w_max = self.get_parameter("w_max").value
         
         
-        self.pid_controller = PIDController(
-            Kp_ang=kp_ang, Ki_ang=ki_ang, Kd_ang=kd_ang,
-            Kp_lin=kp_lin, Ki_lin=ki_lin, Kd_lin=kd_lin,
-            deadband_ang=deadband_ang, d_thresh=d_thresh, alpha=alpha
+        self.control_time = 0.01
+        self.last_goal_selection = self.get_clock().now()
+        
+        
+        self.counter = 0
+        self.publisher = self.create_publisher(TwistStamped, '/layka_controller/cmd_vel', 10)
+        self.create_timer(
+            self.control_time,
+            self.control_loop
+        )
+        self.get_logger().info('Object Avoidance Node Started')
+        
+        self.last_scan = None
+        self.visualiser_world = Visualizer()
+        
+        
+        
+    def lidar_callback(self, msg):
+        
+        self.last_scan = msg
+        
+    def odometry_callback(self, msg):
+        self.robot_x = msg.pose.pose.position.x
+        self.robot_y = msg.pose.pose.position.y
+        orientation  = msg.pose.pose.orientation
+        
+        self.robot_theta = self.get_yaw_from_quaternion(orientation)
+
+    def get_yaw_from_quaternion(self, orientation):
+        """
+        Convert quaternion orientation to yaw angle.
+        """
+        x = orientation.x
+        y = orientation.y
+        z = orientation.z
+        w = orientation.w
+        
+        # Calculate the yaw angle from the quaternion
+        siny_cosp = 2.0 * (w * z + x * y)
+        cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+        yaw = m.atan2(siny_cosp, cosy_cosp)
+        
+        return yaw        
+
+    def control_loop(self):
+        if self.last_scan is None:
+            return
+        scan:LaserScan = self.last_scan
+        
+        f_att = self.compute_attraction_force()
+        f_rep = self.compute_repulsive_force(scan)
+        f_total = f_att + f_rep
+        twist_command = self.compute_twist(f_total)
+        
+        min_distance = min(scan.ranges)
+        
+        if  min_distance < 0.5:
+            
+            self.get_logger().warn("Obstacle too close! Stopping robot.")
+            
+            min_index = scan.ranges.index(min_distance)
+            angle_min = scan.angle_min + min_index * scan.angle_increment
+            angle = angle_min + m.pi  # Turn away from the obstacle
+            #if robot yaw is bakcwards to the obstacle, start liniear movement
+            if abs(angle) < m.pi/2:
+                twist_command.twist.linear.x = self.v_max
+                twist_command.twist.angular.z = 0.0 
+            else:
+                twist_command.twist.linear.x = 0.0
+                twist_command.twist.angular.z = self.w_max * np.sign(self.robot_theta - angle)
+            
+                
+            
+            
+        
+        
+        
+        
+        
+        self.publisher.publish(twist_command)
+        x_pts,y_pts = self.scan_to_points(self.last_scan)
+        
+        if self.is_reached_goal():
+            self.get_logger().info("Goal Reached!")
+            self.select_random_goal()
+            self.last_goal_selection = self.get_clock().now()
+        else:
+            if (self.get_clock().now() - self.last_goal_selection).nanoseconds > 50e9:  # 10 seconds
+                self.select_random_goal()
+                self.last_goal_selection = self.get_clock().now()
+        
+        
+        self.visualiser_world.update(
+            x_points= x_pts,
+            y_points= y_pts,
+            F_att=self.world_to_body(f_att),
+            F_rep=self.body_to_world(f_rep),
+            F_total=self.world_to_body(f_total),
+            robot_x=self.robot_x,
+            robot_y=self.robot_y,
+            
         )
         
         
-        #- ESCAPE_PARAMS
-        self.declare_parameter("max_stuck_count",15)
-        self.declare_parameter("stuck_lin_thr",0.2)
-        self.declare_parameter("stuck_ang_thr",0.4)
-        
-        
-        
-        self.goal_x         = self.get_parameter("goal_x").value
-        self.goal_y         = self.get_parameter("goal_y").value
-        self.k_att          = self.get_parameter("k_att").value
-        self.k_rep          = self.get_parameter("k_rep").value
-        self.d0             = self.get_parameter("d0").value
-        self.v_linear_max   = self.get_parameter("v_linear_max").value
-        self.w_angular_max  = self.get_parameter("w_angular_max").value
-        self.min_distance   = self.get_parameter("min_distance").value
-        self.max_rep        = self.get_parameter("max_rep").value
-        
-        
-        
-        self.max_stuck_count= self.get_parameter("max_stuck_count").value
-        self.stuck_lin_thr  = self.get_parameter("stuck_lin_thr").value
-        self.stuck_ang_thr  = self.get_parameter("stuck_ang_thr").value
-        self.stuck_counter = 0
-        
-        
-        self.control_time   = 0.1
-        
-        self.create_timer(self.control_time,self.control_loop)
-        
-        
-        self.get_logger().info('Object Avoidance Node Started')
-
-
-
-    def calculate_repulsive_force(self,scan:LaserScan):
-        x_pts,y_pts = self.scan_to_points(scan)
-        
-        f_rep_total = np.array([0.0,0.0])
-        
-        for x,y in zip(x_pts,y_pts):
-            d = m.hypot(x,y)
-            if d<1e-3:
-                continue
-            
-            d_clamped = max(d,self.min_distance)
-            if d_clamped >self.d0:
-                continue
-            
-            mag = self.k_rep * (1.0/d_clamped - 1.0/self.d0) / d_clamped**2
-            
-            mag = min(mag,self.max_rep)
-            f_rep_total += mag * np.array([-x/d_clamped,-y/d_clamped])
-            
-        return f_rep_total
+    def is_reached_goal(self):
+        """
+        Check if the robot has reached the goal position.
+        """
+        distance = m.sqrt((self.goal_x - self.robot_x)**2 + (self.goal_y - self.robot_y)**2)
+        return distance < 0.5
     
-    def calculate_att_force(self):
-        x_goal = self.goal_x
-        y_goal = self.goal_y
-        return self.k_att * np.array([x_goal - self.robot_x,y_goal - self.robot_y])
+    def select_random_goal(self):
+        
+        """
+        Select a random goal position within a specified range.
+        """
+        self.goal_x = np.random.uniform(-2.0, 2.0)
+        self.goal_y = np.random.uniform(-2.0, 2.0)
+        self.get_logger().info(f"New Goal: ({self.goal_x}, {self.goal_y})")
+        
+        
+        
+        
+    def world_to_body(self, force):
+        """
+        Convert world coordinates to body coordinates.
+        """
+        sin = m.sin(self.robot_theta)
+        cos = m.cos(self.robot_theta)
+        R = np.array([[cos, -sin],
+                       [sin, cos]])
+        return R @ force
+    
+    def body_to_world(self, force):
+        """
+        Convert body coordinates to world coordinates.
+        """
+        sin = m.sin(self.robot_theta)
+        cos = m.cos(self.robot_theta)
+    
+        R = np.array([[cos, sin],
+                       [-sin, cos]])
+        return R @ force
+    
+    
+    
     
         
-    def scan_to_points(self,scan:LaserScan):
-        ranges = np.array(scan.ranges)
+    def compute_attraction_force(self):
+        """
+        Compute the attraction force towards the goal.
+        """
+        dx = self.goal_x - self.robot_x
+        dy = self.goal_y - self.robot_y
+        distance = m.sqrt(dx**2 + dy**2)
+        
+        if distance < 0.01:
+            return np.zeros(2)
+        
+        force_magnitude = self.get_parameter("K_att").value * distance
+        angle = m.atan2(dy, dx)
+        
+        return np.array([force_magnitude * m.cos(angle), force_magnitude * m.sin(angle)])
+    
+    def compute_repulsive_force(self,scan:LaserScan):
+        """
+        Compute the repulsive force based on Lidar scan data.
+        """
+        f_rep = np.zeros(2)
+        x_points, y_points = self.scan_to_points(scan)
+        
+        for x, y in zip(x_points, y_points):
+            d = m.hypot(x, y)
+            
+            if d> self.rep_field:
+                continue
+            ang = m.atan2(y, x)
+            mag = self.k_rep *(1.0/d - 1.0/self.rep_field)
+            f_rep += mag * np.array([m.cos(ang), m.sin(ang)])
+        
+        f_rep_magnitude = m.sqrt(f_rep[0]**2 + f_rep[1]**2)
+        if f_rep_magnitude < 0.01:
+            return np.zeros(2)
+        
+        
+        return f_rep
+        
+    def compute_twist(self, F_total):
+        """
+        Compute the velocity command based on the total force.
+        """
+        F_att_x, F_att_y = self.compute_attraction_force()
+        F_rep_x, F_rep_y = F_total
+        
+        # Total force components
+        total_force_x = F_att_x + F_rep_x
+        total_force_y = F_att_y + F_rep_y
+        
+        # Calculate the magnitude and angle of the total force
+        force_magnitude = m.sqrt(total_force_x**2 + total_force_y**2)
+        
+        if force_magnitude < 0.01:
+            return TwistStamped(header=Header(stamp=self.get_clock().now().to_msg()), twist=Twist())
+        
+        angle = m.atan2(total_force_y, total_force_x)
+        
+        # Compute linear and angular velocities
+        linear_velocity = min(self.v_max, force_magnitude)
+        angular_velocity = min(self.w_max, angle - self.robot_theta)
+        
+        twist_command = TwistStamped()
+        twist = Twist()
+        header = Header()
+        header.frame_id = "base_link"
+        header.stamp = self.get_clock().now().to_msg()
+        twist.linear.x = linear_velocity
+        twist.angular.z = angular_velocity
+        twist_command.header = header
+        twist_command.twist = twist
+        
+        return twist_command
+        
+                
+        
+    def scan_to_points(self,scan:LaserScan)-> tuple[list,list]:
+        # Convert scan ranges to x, y points in robot frame, only for FOV -90 to 90 degrees
         angle_min = scan.angle_min
         angle_increment = scan.angle_increment
-        x_pts = []
-        y_pts = []
-        
-        
+        ranges = scan.ranges
+        x_points = []
+        y_points = []
         for i,d in enumerate(ranges):
-            
-            if np.isnan(d) or np.isinf(d) or d > self.d0:
+            if np.isinf(d) or np.isnan(d) or d <= 0.0:
                 continue
+            angle = angle_min + i * angle_increment
+            if angle < -m.pi/2 or angle > m.pi/2:
+                continue
+            x = d* m.cos(angle)
+            y = d*m.sin(angle)
+            x_points.append(x)
+            y_points.append(y)
+        return x_points, y_points
             
-            angle = angle_min + i*angle_increment
-            x = d * m.cos(angle)
-            y = d * m.sin(angle)
+                
             
-            x_pts.append(x)
-            y_pts.append(y)
-            
-        return x_pts,y_pts        
-            
-            
-            
-        
-               
-        
-    def lidar_callback(self, msg:LaserScan):
-        self.last_scan = msg
-
-    def odom_callback(self, msg:Odometry):
-        self.robot_x =  msg.pose.pose.position.x
-        self.robot_y =  msg.pose.pose.position.y
-
-        q = msg.pose.pose.orientation
-        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
-        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        self.robot_heading = m.atan2(siny_cosp,cosy_cosp)
         
     
     
-    def control_loop(self):
-        if self.last_scan == None:
-            return
-        att_force = self.calculate_att_force() ## Wrold frame
-        
-        rep_force_b = self.calculate_repulsive_force(self.last_scan) ## body frame 
-        
-        c,s =np.cos(self.robot_heading),np.sin(self.robot_heading)
-        R_body_to_word = np.array([[c,-s],[s, c]])
-        
-        rep_force =R_body_to_word.dot(rep_force_b)
-        
-        
-        
-        mag_rep = np.linalg.norm(rep_force)
-        if mag_rep >self.max_rep:
-            rep_force = (rep_force/mag_rep)*self.max_rep
-            
-            
-        F_net = att_force+rep_force # f_net is in world frame
-        
-        
-        twist = self.pid_controller.compute_twist(
-            F_net,robot_yaw=self.robot_heading,
-            dt=self.control_time
-            ,v_max=self.v_linear_max,
-            w_max=self.w_angular_max
-        
-        )
-        #twist = self.compute_twist(F_net)
-            
-        
-        
-        
-        self.cmd_vel_pub.publish(twist)
-        self.visualiser.update(*self.scan_to_points(self.last_scan),F_total=F_net, F_att=att_force,F_rep=rep_force_b,
-                               robot_x=self.robot_x,robot_y=self.robot_y)
     
-    def compute_twist(self,f_total):
-        cos = np.cos(self.robot_heading)
-        sin = np.sin(self.robot_heading)
-        R_world_to_body = np.array([
-            [cos,sin],
-            [-sin,cos]
-        ])
-        
-        F_body = R_world_to_body.dot(f_total)
-        
-        k_lin = 0.5
-        k_ang = 0.2
-        
-        fx_b,fy_b =F_body
-        angle_err = np.arctan2(fy_b,fx_b)
-        force_mag = m.hypot(fx_b,fy_b)
-        v_cmd = k_lin * force_mag* np.cos(angle_err)
-        w_cmd = -k_ang*angle_err
-        
-        v_cmd = float(np.clip(v_cmd, -self.v_linear_max, self.v_linear_max))
-        w_cmd = float(np.clip(w_cmd, -self.w_angular_max, self.w_angular_max))
-        st = TwistStamped()
-        hdr = Header()
-        twist = Twist()
-        hdr.frame_id ="base_link"
-        hdr.stamp = self.get_clock().now().to_msg()
-        
-        twist.angular.z = w_cmd
-        twist.linear.x = v_cmd
-        st.header = hdr
-        st.twist = twist
-        
-        return st
-
+    
 def main(args=None):
     rclpy.init(args=args)
     node = ObjectAvoidanceNode()
@@ -263,7 +315,6 @@ def main(args=None):
     except KeyboardInterrupt:
         node.get_logger().info('Keyboard Interrupt (SIGINT)')
     finally:
-        node.pid_controller.save_hist()
         node.destroy_node()
         rclpy.shutdown()
 

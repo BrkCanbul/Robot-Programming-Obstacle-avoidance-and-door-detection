@@ -6,222 +6,266 @@ from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 
-from .visualiser import Visualizer
-from .pid_Controller import PIDController,PIDHistory
-
 class ObjectAvoidanceNode(Node):
     def __init__(self):
-        super().__init__('object_avoidance_node')
+        super().__init__("object_avoidance_node")
+
+        # Abonelikler: LIDAR verileri (/scan) ve odometri verileri (/layka_controller/odom) alınır
         self.lidar_sub = self.create_subscription(
-            LaserScan,
-            '/scan',
-            self.lidar_callback,
-            10)
-        self.odom_sub = self.create_subscription(
-            Odometry,
-            '/layka_controller/odom',
-            self.odometry_callback,
-            10
+            LaserScan, "/scan", self.lidar_callback, 10
         )
-    
-        
-        self.declare_parameter("K_att",1.0)         ## attractive coef 
-        self.declare_parameter("K_rep",1.0)         ## repulsive  coef
-        self.declare_parameter("rep_field",1.0)     ## repulsive force affection field
-        self.declare_parameter("v_linear_max",0.5)  ## m/s
-        self.declare_parameter("v_angular_max",1.0) ## rad/s
-        
-        self.declare_parameter("x_goal",5.0)
-        self.declare_parameter("y_goal",6.0) 
-        
-        self.declare_parameter("max_rep",5.0)
-        
-        self.pid_controller = PIDController()
-        self.visualiser = Visualizer()
-    
-        
-        self.x_goal = self.get_parameter("x_goal").value
-        self.y_goal = self.get_parameter("y_goal").value
-        self.max_rep = self.get_parameter("max_rep").value
-        self.robot_gx = 0.0
-        self.robot_gy = 0.0
-        self.robot_yaw = 0.0
-            
-        self.k_att = self.get_parameter("K_att").value
-        self.k_rep = self.get_parameter("K_rep").value  
+        self.odom_sub = self.create_subscription(
+            Odometry, "/layka_controller/odom", self.odometry_callback, 10
+        )
+
+        # Parametreler: Engel kaçınma ve hareket için
+        self.declare_parameter("K_rep", 0.2)  # İtici kuvvet katsayısı
+        self.declare_parameter("rep_field", 0.65)  # Engel itme alanının mesafesi
+        self.declare_parameter("v_linear_max", 0.8)  # Maksimum doğrusal hız
+        self.declare_parameter("v_angular_max", 1.2)  # Maksimum açısal hız
+        self.declare_parameter("default_linear_speed", 0.5)  # Varsayılan doğrusal hız
+        self.declare_parameter("stuck_threshold", 0.05)  # Sıkışma için hız eşik
+        self.declare_parameter("stuck_time", 2.0)  # Sıkışma süresi eşik
+        self.declare_parameter("min_distance", 0.3)  # Minimum engel mesafesi
+        self.declare_parameter("att_strength", 0.25)  # Çekici kuvvet katsayısı
+
+        # Parametrelerin alınması
+        self.k_rep = self.get_parameter("K_rep").value
         self.rep_field = self.get_parameter("rep_field").value
         self.v_linear_max_ms = self.get_parameter("v_linear_max").value
         self.v_angular_max_rads = self.get_parameter("v_angular_max").value
-        
-        self.publisher = self.create_publisher(TwistStamped, '/layka_controller/cmd_vel', 10)
-        
-        self.timer_period = 0.1 ## 10 hertz for control loop
-        self.create_timer(self.timer_period,self.control_loop)
-        
-        self.counter = 0
-        self.lastest_scan:LaserScan = None
-        self.current_twist = TwistStamped()
-        
-        self.get_logger().info(f'Object Avoidance Node Started to goal (x,y) :({self.x_goal},{self.y_goal}) ')
+        self.default_linear_speed = self.get_parameter("default_linear_speed").value
+        self.stuck_threshold = self.get_parameter("stuck_threshold").value
+        self.stuck_time = self.get_parameter("stuck_time").value
+        self.min_distance = self.get_parameter("min_distance").value
+        self.att_strength = self.get_parameter("att_strength").value
 
+        # Hız komutları (/layka_controller/cmd_vel) için
+        self.publisher = self.create_publisher(
+            TwistStamped, "/layka_controller/cmd_vel", 10
+        )
+        # Kontrol döngüsü: 20 Hz (0.05 s) frekansta çalışır
+        self.create_timer(0.05, self.control_loop)
 
+        self.lastest_scan = None  # Son LIDAR verisi
+        self.current_twist = TwistStamped()  # Son hız komutu
+        self.robot_gx = 0.0  # Robotun x konumu
+        self.robot_gy = 0.0  # Robotun y konumu
+        self.last_position = None  # Son konum (sıkışma kontrolü için)
+        self.stuck_timer = 0.0  # Sıkışma süresi
+        self.previous_angles = []  # Son seçilen açılar (maksimum 5)
+
+        self.get_logger().info("Object Avoidance Node Started")
 
     def lidar_callback(self, msg):
+        # LIDAR verilerini kaydet
         self.lastest_scan = msg
-        
-    def odometry_callback(self,msg:Odometry):
+
+    def odometry_callback(self, msg):
+        # Robotun konumunu güncelle
         self.robot_gx = msg.pose.pose.position.x
         self.robot_gy = msg.pose.pose.position.y
-        
-        q = msg.pose.pose.orientation
-        
-        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
-        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        
-        self.robot_yaw = np.arctan2(siny_cosp,cosy_cosp)
-        
-        
-    def control_loop(self):
 
-        if self.lastest_scan == None:
+    def control_loop(self):
+        # Kontrol döngüsü: Her 0.05 saniyede çalışır, robotun hareketini planlar
+        if self.lastest_scan is None:
             return
-        
+
         scan = self.lastest_scan
-        
-        F_att = self._compute_att_force()
+        # İtici kuvvet
         F_rep = self._compute_rep_force(scan)
-        F_total = F_att + F_rep
-        points = self.scan_to_points(scan)
-        
-        self.visualiser.update(
-        points[0], points[1],
-        F_total=F_total,
-        F_att=F_att,
-        F_rep=F_rep,
-        robot_x=self.robot_gx,
-        robot_y=self.robot_gy,
+        # Çekici kuvvet
+        angle_opening = self.find_widest_opening_angle(scan)
+        # Dinamik çekici kuvvet: sıkışma eğiliminde artır
+        att_strength_dynamic = self.att_strength * (1.5 if self.stuck_timer > 0.5 else 1.0)
+        F_att = att_strength_dynamic * np.array(
+            [np.cos(angle_opening), np.sin(angle_opening)]
         )
-        
-        
-        twist_command = self.conv_force_to_twist(F_total)
-        self.publisher.publish(twist_command)
-        self.current_twist = twist_command
-    
-    
-    def scan_to_points(self,scan:LaserScan)-> tuple[np.ndarray, np.ndarray]:
-        """
-        LaserScan verisini noktalara dönüştürür.
-        """
-        ranges = np.array(scan.ranges)
-        angle_min = scan.angle_min
-        angle_inc = scan.angle_increment
-        
-        angles = angle_min + np.arange(len(ranges)) * angle_inc
-        x_points = ranges * np.cos(angles)
-        y_points = ranges * np.sin(angles)
-        
-        return x_points, y_points
-    
-    
-    def _compute_att_force(self)-> np.ndarray:  
-        
-        dx = self.x_goal - self.robot_gx
-        dy = self.y_goal - self.robot_gy
-        
-        goal_g = np.array([dx,dy])
-        F_att_global = self.k_att * goal_g
-        
-        psi = self.robot_yaw
-        
-        r_inv = np.array(
-            [[np.cos(psi),np.sin(psi)],
-            [-np.sin(psi),np.cos(psi)]]
-        )
-        F_att_body = r_inv.dot(F_att_global)
-        
-        return F_att_body
-        
-        
-    
-    def _compute_rep_force(self,scan:LaserScan)-> np.ndarray:
-        ranges = np.array(scan.ranges)
-        angle_min = scan.angle_min
-        angle_inc = scan.angle_increment
-        
-        f_rep_total = np.zeros(2,dtype=np.float32)
-        
-        for index,d_i in enumerate(ranges):
-            
-            if np.isinf(d_i) or np.isnan(d_i):
+        # Toplam kuvvet
+        F_total = F_rep + F_att
+
+        # Sıkışma kontrolü
+        if self.is_stuck():
+            self.handle_stuck_situation()
+        else:
+            self.stuck_timer = 0.0
+            # Hız komutlarını hesapla ve yayınla
+            twist_command = self.compute_twist(F_total)
+            self.publisher.publish(twist_command)
+            self.current_twist = twist_command
+
+    def _compute_rep_force(self, scan: LaserScan) -> np.ndarray:
+        # İtici kuvvet hesaplama
+        ranges = np.array(scan.ranges)  # LIDAR mesafe ölçümleri
+        angle_min = scan.angle_min  # Minimum açı
+        angle_inc = scan.angle_increment  # Açı artışı
+        f_rep_total = np.zeros(2, dtype=np.float32)  # Toplam itici kuvvet vektörü
+
+        # Her bir LIDAR ışını için itici kuvvet hesapla
+        for index, d_i in enumerate(ranges):
+            theta_i = angle_min + index * angle_inc
+
+            # Geçersiz veya uzak mesafeleri atla
+            if np.isinf(d_i) or np.isnan(d_i) or d_i > self.rep_field or d_i <= 0.0:
                 continue
-            
-            if d_i > self.rep_field or d_i <=0.0:
-                continue
-            
-            theta_i = angle_min * index *angle_inc
-            
-            coeff = (1.0/d_i) - (1.0/self.rep_field)
-            
-            f_i = self.k_rep * coeff * (1.0/(d_i*d_i))
+
+            # Potansiyel alanlar formülü: f_i = k_rep * (1/d_i - 1/rep_field)
+            coeff = (1.0 / max(d_i, self.min_distance)) - (1.0 / self.rep_field)
+            f_i = self.k_rep * coeff
+
+            # Işının yön vektörü
             ux = np.cos(theta_i)
             uy = np.sin(theta_i)
-            
-            f_rep_total +=  -f_i *np.array([ux,uy])
-        # Normalize and clip the repulsive force vector
-        mag = np.linalg.norm(f_rep_total)
-        if mag > 1e-6:
-            f_rep_total = f_rep_total / mag * min(mag, self.max_rep)
-            f_rep_total = np.clip(f_rep_total, -self.max_rep, self.max_rep)
-        
+
+            # İtici kuvvet engel yönüne ters
+            f_rep_total += -f_i * np.array([ux, uy])
+
         return f_rep_total
-    
-            
-        
-    
-    def conv_force_to_twist(self,F:np.ndarray):
-            
-        """
-        Toplam kuvvet (Fx, Fy) üzerinden açısal ve lineer hız hesaplar.
-        v_cmd = k_lin * ||F|| * max(0, cos(angle_error)) formülü,
-        sapma 0° iken %100 hız, sapma 90° iken 0 hız, sapma 180° iken de 0 hız üretir.
-        """
-        Fx, Fy = F[0], F[1]
 
-        
-        target_angle = np.arctan2(Fy, Fx)  
+    def find_widest_opening_angle(self, scan: LaserScan):
+        ranges = np.array(scan.ranges)
+        angle_min = scan.angle_min
+        angle_inc = scan.angle_increment
+        num_ranges = len(ranges)
 
-        # 2. Açısal hız (P kontroller):
-        k_ang = 1.0
-        w_cmd = k_ang * target_angle
+        # -90 derece (rad) ve +90 derece (rad) aralığındaki indeksleri bul
+        start_angle = -np.pi / 2
+        end_angle = np.pi / 2
+        start_index = int(np.ceil((start_angle - angle_min) / angle_inc))
+        end_index = int(np.floor((end_angle - angle_min) / angle_inc))
 
-        # 3. Kuvvetin büyüklüğü:
-        mag_F = np.linalg.norm(F)
-        if mag_F < 1e-6:
-            # Eğer neredeyse sıfır kuvvetse, hareketsiz Twist döndür
-            return TwistStamped()
+        # Sınırları aşmamak için indeksleri düzelt
+        start_index = max(0, start_index)
+        end_index = min(num_ranges - 1, end_index)
 
-        # 4. Yumuşak lineer hız: sapmadan etkilenir
-        #    cos(angle_error) negatif olursa v hemen 0 olacak
-        cos_term = np.cos(target_angle)
-        forward_factor = max(0.0, cos_term)  # eğer açısal sapma ∈ (90°, 270°) ise 0
-        k_lin = 0.2
-        v_cmd = k_lin * mag_F * forward_factor
+        # İlgili aralıktaki mesafeleri al
+        selected_ranges = ranges[start_index : end_index + 1]
+        valid_ranges = np.where(np.isfinite(selected_ranges) & (selected_ranges > self.min_distance), selected_ranges, 0.0)
 
-        # 5. Maksimum limit ve tip güvenliği
+        # Pencereleme yöntemi: Mesafeleri yumuşatarak geniş açık alanları tespit et
+        window_size = 30
+        if len(valid_ranges) < window_size:
+            window_size = max(1, len(valid_ranges) // 2)
+        smoothed_ranges = np.convolve(
+            valid_ranges, np.ones(window_size) / window_size, mode="valid"
+        )
+
+        # En geniş 3 açık alanı bul
+        sorted_indices = np.argsort(smoothed_ranges)[::-1][:3]  # En büyük 3 indeks
+        if len(sorted_indices) == 0:
+            # Hiç açık alan yoksa varsayılan açı
+            max_index = np.argmax(smoothed_ranges)
+            target_angle = angle_min + (start_index + max_index + window_size // 2) * angle_inc
+        else:
+            # Ağırlıklı rastgele seçim
+            weights = np.clip(smoothed_ranges[sorted_indices], 0, None)  # Negatif değerleri sıfıra çek
+            weight_sum = np.sum(weights)
+            if weight_sum == 0:
+                weights = np.ones_like(weights) / len(weights)  # Sıfır toplamı için eşit ağırlık
+            else:
+                weights = weights / weight_sum  # Normalizasyon
+            chosen_index = np.random.choice(sorted_indices, p=weights)
+            target_angle = angle_min + (start_index + chosen_index + window_size // 2) * angle_inc
+
+            # Önceki açılardan kaçın
+            if len(self.previous_angles) > 0 and np.random.rand() < 0.7:  # %70 ihtimalle
+                for _ in range(3):  # 3 deneme
+                    if any(abs(target_angle - prev_angle) < 0.3 for prev_angle in self.previous_angles):
+                        chosen_index = np.random.choice(sorted_indices, p=weights)
+                        target_angle = angle_min + (start_index + chosen_index + window_size // 2) * angle_inc
+                    else:
+                        break
+
+        # Hedef açıyı kaydet (maksimum 5 açı sakla)
+        self.previous_angles.append(target_angle)
+        if len(self.previous_angles) > 5:
+            self.previous_angles.pop(0)
+
+        return target_angle
+
+    def is_stuck(self):
+        # Sıkışma kontrolü: Robotun hareketi yetersizse sıkışmış kabul edilir
+        if self.last_position is None:
+            self.last_position = (self.robot_gx, self.robot_gy)
+            return False
+
+        # Mevcut ve önceki konum arasındaki mesafeyi hesapla
+        current_position = (self.robot_gx, self.robot_gy)
+        distance_moved = np.hypot(
+            current_position[0] - self.last_position[0],
+            current_position[1] - self.last_position[1],
+        )
+        speed = distance_moved / 0.05
+        self.last_position = current_position
+
+        # Hız, eşik değerin altındaysa sıkışma sayacı artırılır
+        if speed < self.stuck_threshold:
+            self.stuck_timer += 0.05
+            if self.stuck_timer > self.stuck_time:
+                self.get_logger().info("Robot detected as stuck")
+                return True
+        else:
+            self.stuck_timer = 0.0  # Hareket varsa sayaç sıfırlanır
+        return False
+
+    def handle_stuck_situation(self):
+        # Sıkışma durumu: Robot en geniş açık alana dönerek kurtulmayı dener
+        scan = self.lastest_scan
+        if scan is None:
+            return
+
+        ranges = np.array(scan.ranges)
+        valid_ranges = np.where(np.isfinite(ranges) & (ranges > 0.0), ranges, -1.0)
+
+        # En geniş açık alanı bul
+        window_size = 30
+        smoothed_ranges = np.convolve(
+            valid_ranges, np.ones(window_size) / window_size, mode="valid"
+        )
+        max_index = np.argmax(smoothed_ranges)
+        angle_min = scan.angle_min
+        angle_inc = scan.angle_increment
+        target_angle = angle_min + (max_index + window_size // 2) * angle_inc
+
+        # Açık alana dön ve yavaş ilerle
+        twist = TwistStamped()
+        angular_speed = float(
+            np.clip(
+                target_angle * 0.5, -self.v_angular_max_rads, self.v_angular_max_rads
+            )
+        )
+        twist.twist.angular.z = angular_speed
+        twist.twist.linear.x = float(self.default_linear_speed * 0.5)
+        twist.header.frame_id = "base_link"
+        twist.header.stamp = self.get_clock().now().to_msg()
+        self.publisher.publish(twist)
+        self.get_logger().info(
+            f"Robot is stuck, turning towards widest open space at angle {target_angle:.2f} rad"
+        )
+
+    def compute_twist(self, F_total: np.ndarray):
+        # Hız komutlarını hesapla: Toplam kuvvetten doğrusal ve açısal hızlar türetilir
+        v_cmd = self.default_linear_speed
+        w_cmd = 0.0
+
+        # Toplam kuvvet sıfıra yakın değilse yön ve hız hesaplanır
+        if np.linalg.norm(F_total) > 1e-6:
+            angle_total = np.arctan2(F_total[1], F_total[0])  # Çekici ve itici kuvvet birlikte
+            w_cmd = -angle_total * 0.6  # Engelden uzaklaş ve açık alana yönel
+            # Doğrusal hız: Engel açısına bağlı olarak azalır
+            v_cmd *= max(0.4, 1.0 - np.abs(angle_total) / (np.pi / 2))
+
+        # Hızları sınırlandır
         v_cmd = np.clip(v_cmd, -self.v_linear_max_ms, self.v_linear_max_ms)
         w_cmd = np.clip(w_cmd, -self.v_angular_max_rads, self.v_angular_max_rads)
 
+        # Hız komutunu hazırla ve zaman damgası ekle
         twist = TwistStamped()
         twist.twist.linear.x = float(v_cmd)
         twist.twist.angular.z = float(w_cmd)
         twist.header.frame_id = "base_link"
         twist.header.stamp = self.get_clock().now().to_msg()
-        self.current_twist =twist
         return twist
-        
-            
-
-
 
 def main(args=None):
     rclpy.init(args=args)
@@ -230,10 +274,10 @@ def main(args=None):
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        node.get_logger().info('Keyboard Interrupt (SIGINT)')
+        node.get_logger().info("Keyboard Interrupt (SIGINT)")
     finally:
         node.destroy_node()
         rclpy.shutdown()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
